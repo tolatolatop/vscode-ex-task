@@ -57,6 +57,7 @@ async function generateTaskConfig() {
 			version: "2.0.0",
 			tasks: [
 				{
+					id: -1,
 					label: "构建项目",
 					type: "shell",
 					command: "npm",
@@ -74,6 +75,7 @@ async function generateTaskConfig() {
 					problemMatcher: []
 				},
 				{
+					id: -1,
 					label: "运行测试",
 					type: "shell",
 					command: "npm",
@@ -127,22 +129,51 @@ async function submitTaskToRemote() {
 
 		const workspaceRoot = workspaceFolders[0].uri.fsPath;
 		const workspaceName = path.basename(workspaceRoot);
+		const tasksJsonPath = path.join(workspaceRoot, '.vscode', 'tasks.json');
 
-		// 显示输入对话框获取任务信息
-		const taskName = await vscode.window.showInputBox({
-			prompt: '请输入任务名称',
-			placeHolder: '例如: 构建项目',
-			value: '构建项目'
-		});
+		// 检查是否存在tasks.json文件
+		if (!fs.existsSync(tasksJsonPath)) {
+			const createConfig = await vscode.window.showWarningMessage(
+				'未找到任务配置文件，是否先创建？',
+				'是', '否'
+			);
+			if (createConfig === '是') {
+				await generateTaskConfig();
+			} else {
+				return;
+			}
+		}
 
-		if (!taskName) {
+		// 读取现有的任务配置
+		const tasksConfigContent = fs.readFileSync(tasksJsonPath, 'utf8');
+		const tasksConfig = JSON.parse(tasksConfigContent);
+
+		// 过滤出未提交的任务（id为-1的任务）
+		const unsubmittedTasks = tasksConfig.tasks.filter((task: any) => task.id === -1);
+
+		if (unsubmittedTasks.length === 0) {
+			vscode.window.showInformationMessage('所有任务都已提交完成！');
 			return;
 		}
 
+		// 让用户选择要提交的任务
+		const taskLabels = unsubmittedTasks.map((task: any) => task.label);
+		const selectedTaskLabel = await vscode.window.showQuickPick(taskLabels, {
+			placeHolder: '选择要提交的任务'
+		});
+
+		if (!selectedTaskLabel) {
+			return;
+		}
+
+		// 找到选中的任务
+		const selectedTask = tasksConfig.tasks.find((task: any) => task.label === selectedTaskLabel);
+
+		// 显示输入对话框获取任务描述
 		const taskDescription = await vscode.window.showInputBox({
 			prompt: '请输入任务描述',
 			placeHolder: '描述任务的具体内容',
-			value: `在项目 ${workspaceName} 中执行 ${taskName} 任务`
+			value: `在项目 ${workspaceName} 中执行 ${selectedTaskLabel} 任务`
 		});
 
 		if (!taskDescription) {
@@ -150,9 +181,10 @@ async function submitTaskToRemote() {
 		}
 
 		// 显示进度条
+		let remoteTaskId: number = -1;
 		await vscode.window.withProgress({
 			location: vscode.ProgressLocation.Notification,
-			title: "正在提交任务到远程服务...",
+			title: `正在提交任务 "${selectedTaskLabel}" 到远程服务...`,
 			cancellable: false
 		}, async (progress) => {
 			progress.report({ increment: 0 });
@@ -167,25 +199,46 @@ async function submitTaskToRemote() {
 			//     method: 'POST',
 			//     headers: { 'Content-Type': 'application/json' },
 			//     body: JSON.stringify({
-			//         name: taskName,
+			//         name: selectedTaskLabel,
 			//         description: taskDescription,
 			//         workspace: workspaceName,
 			//         timestamp: new Date().toISOString()
 			//     })
 			// });
+			// const result = await response.json();
+			// remoteTaskId = result.id;
+
+			// 模拟远程返回的ID（实际使用时替换为真实API调用）
+			remoteTaskId = Math.floor(Math.random() * 10000) + 1;
 
 			await new Promise(resolve => setTimeout(resolve, 1000));
 			progress.report({ increment: 100 });
+
+			// 更新任务配置中的ID
+			const taskIndex = tasksConfig.tasks.findIndex((task: any) => task.label === selectedTaskLabel);
+			if (taskIndex !== -1) {
+				tasksConfig.tasks[taskIndex].id = remoteTaskId;
+
+				// 回写到文件
+				fs.writeFileSync(tasksJsonPath, JSON.stringify(tasksConfig, null, 2));
+			}
 		});
 
 		// 显示成功消息
 		vscode.window.showInformationMessage(
-			`任务 "${taskName}" 已成功提交到远程服务！`,
-			'查看详情'
+			`任务 "${selectedTaskLabel}" 已成功提交到远程服务！远程ID: ${remoteTaskId}`,
+			'查看详情', '打开配置文件'
 		).then(selection => {
 			if (selection === '查看详情') {
-				// 这里可以打开任务详情页面或显示更多信息
-				vscode.window.showInformationMessage(`任务详情:\n名称: ${taskName}\n描述: ${taskDescription}\n工作区: ${workspaceName}`);
+				// 显示任务详情
+				vscode.window.showInformationMessage(
+					`任务详情:\n名称: ${selectedTaskLabel}\n描述: ${taskDescription}\n工作区: ${workspaceName}\n远程ID: ${remoteTaskId}`
+				);
+			} else if (selection === '打开配置文件') {
+				// 打开配置文件
+				vscode.workspace.openTextDocument(tasksJsonPath).then(document => {
+					vscode.window.showTextDocument(document);
+				});
 			}
 		});
 
