@@ -31,7 +31,12 @@ export function activate(context: vscode.ExtensionContext) {
 		await submitTaskToRemote();
 	});
 
-	context.subscriptions.push(disposable, generateTaskConfigDisposable, submitTaskDisposable);
+	// 注册任务管理面板命令
+	const taskManagerDisposable = vscode.commands.registerCommand('patch-test.openTaskManager', () => {
+		TaskManagerPanel.createOrShow(context.extensionUri);
+	});
+
+	context.subscriptions.push(disposable, generateTaskConfigDisposable, submitTaskDisposable, taskManagerDisposable);
 }
 
 // 生成任务配置功能
@@ -249,3 +254,284 @@ async function submitTaskToRemote() {
 
 // This method is called when your extension is deactivated
 export function deactivate() { }
+
+// 任务管理面板类
+class TaskManagerPanel {
+	private static currentPanel: TaskManagerPanel | undefined;
+	private readonly _panel: vscode.WebviewPanel;
+	private readonly _extensionUri: vscode.Uri;
+	private _disposables: vscode.Disposable[] = [];
+
+	public static createOrShow(extensionUri: vscode.Uri) {
+		const column = vscode.window.activeTextEditor
+			? vscode.window.activeTextEditor.viewColumn
+			: undefined;
+
+		// 如果已经有面板，就显示它
+		if (TaskManagerPanel.currentPanel) {
+			TaskManagerPanel.currentPanel._panel.reveal(column);
+			return;
+		}
+
+		// 否则创建一个新的面板
+		const panel = vscode.window.createWebviewPanel(
+			'taskManager',
+			'任务管理器',
+			column || vscode.ViewColumn.One,
+			{
+				enableScripts: true,
+				localResourceRoots: [extensionUri]
+			}
+		);
+
+		TaskManagerPanel.currentPanel = new TaskManagerPanel(panel, extensionUri);
+	}
+
+	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+		this._panel = panel;
+		this._extensionUri = extensionUri;
+
+		// 设置初始HTML内容
+		this._update();
+
+		// 监听面板关闭事件
+		this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+		// 处理来自webview的消息
+		this._panel.webview.onDidReceiveMessage(
+			message => {
+				switch (message.command) {
+					case 'refresh':
+						this._update();
+						return;
+					case 'submitTask':
+						this._submitTask(message.taskLabel);
+						return;
+				}
+			},
+			null,
+			this._disposables
+		);
+	}
+
+	public dispose() {
+		TaskManagerPanel.currentPanel = undefined;
+
+		// 清理资源
+		this._panel.dispose();
+
+		while (this._disposables.length) {
+			const x = this._disposables.pop();
+			if (x) {
+				x.dispose();
+			}
+		}
+	}
+
+	private async _update() {
+		this._panel.webview.html = await this._getHtmlForWebview();
+	}
+
+	private async _getHtmlForWebview() {
+		const tasks = await this._getTasks();
+
+		return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>任务管理器</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            padding: 20px;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-editor-foreground);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .refresh-btn {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .refresh-btn:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+        .task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .task-item {
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 6px;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .task-info {
+            flex: 1;
+        }
+        .task-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: var(--vscode-editor-foreground);
+        }
+        .task-command {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: var(--vscode-descriptionForeground);
+            background-color: var(--vscode-textBlockQuote-background);
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .task-status {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 8px;
+        }
+        .status-badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .status-submitted {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .status-pending {
+            background-color: #FF9800;
+            color: white;
+        }
+        .submit-btn {
+            background-color: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .submit-btn:hover {
+            background-color: var(--vscode-button-hoverBackground);
+        }
+        .submit-btn:disabled {
+            background-color: var(--vscode-disabledForeground);
+            cursor: not-allowed;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--vscode-descriptionForeground);
+        }
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">任务管理器</div>
+        <button class="refresh-btn" onclick="refreshTasks()">刷新</button>
+    </div>
+    
+    <div class="task-list">
+        ${tasks.length === 0 ? `
+            <div class="empty-state">
+                <div class="empty-state-icon">📋</div>
+                <div>暂无任务配置</div>
+                <div style="margin-top: 10px; font-size: 12px;">请先运行"生成任务配置"命令</div>
+            </div>
+        ` : tasks.map((task: any) => `
+            <div class="task-item">
+                <div class="task-info">
+                    <div class="task-label">${task.label}</div>
+                    <div class="task-command">${task.command} ${task.args.join(' ')}</div>
+                </div>
+                <div class="task-status">
+                    <div class="status-badge ${task.id === -1 ? 'status-pending' : 'status-submitted'}">
+                        ${task.id === -1 ? '待提交' : '已提交'}
+                    </div>
+                    ${task.id === -1 ?
+				`<button class="submit-btn" onclick="submitTask('${task.label}')">提交</button>` :
+				`<div style="font-size: 11px; color: var(--vscode-descriptionForeground);">ID: ${task.id}</div>`
+			}
+                </div>
+            </div>
+        `).join('')}
+    </div>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+        
+        function refreshTasks() {
+            vscode.postMessage({ command: 'refresh' });
+        }
+        
+        function submitTask(taskLabel) {
+            vscode.postMessage({ 
+                command: 'submitTask', 
+                taskLabel: taskLabel 
+            });
+        }
+    </script>
+</body>
+</html>`;
+	}
+
+	private async _getTasks() {
+		try {
+			const workspaceFolders = vscode.workspace.workspaceFolders;
+			if (!workspaceFolders || workspaceFolders.length === 0) {
+				return [];
+			}
+
+			const workspaceRoot = workspaceFolders[0].uri.fsPath;
+			const tasksJsonPath = path.join(workspaceRoot, '.vscode', 'tasks.json');
+
+			if (!fs.existsSync(tasksJsonPath)) {
+				return [];
+			}
+
+			const tasksConfigContent = fs.readFileSync(tasksJsonPath, 'utf8');
+			const tasksConfig = JSON.parse(tasksConfigContent);
+
+			return tasksConfig.tasks || [];
+		} catch (error) {
+			console.error('读取任务配置失败:', error);
+			return [];
+		}
+	}
+
+	private async _submitTask(taskLabel: string) {
+		try {
+			// 调用现有的提交任务功能
+			await submitTaskToRemote();
+			// 提交完成后刷新面板
+			this._update();
+		} catch (error) {
+			vscode.window.showErrorMessage(`提交任务失败: ${error}`);
+		}
+	}
+}

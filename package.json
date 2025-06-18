@@ -12,7 +12,8 @@
   "activationEvents": [
     "onCommand:patch-test.helloWorld",
     "onCommand:patch-test.generateTaskConfig",
-    "onCommand:patch-test.submitTask"
+    "onCommand:patch-test.submitTask",
+    "onCommand:patch-test.openTaskManager"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -28,6 +29,10 @@
       {
         "command": "patch-test.submitTask",
         "title": "提交任务到远程服务"
+      },
+      {
+        "command": "patch-test.openTaskManager",
+        "title": "打开任务管理器"
       }
     ]
   },
