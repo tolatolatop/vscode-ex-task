@@ -86,6 +86,11 @@
         "command": "patch-test.deleteTask",
         "title": "删除任务",
         "icon": "$(trash)"
+      },
+      {
+        "command": "patch-test.manageTaskResources",
+        "title": "管理任务资源",
+        "icon": "$(files)"
       }
     ],
     "menus": {
@@ -124,6 +129,11 @@
         },
         {
           "command": "patch-test.deleteTask",
+          "when": "view == taskManager",
+          "group": "1_modification"
+        },
+        {
+          "command": "patch-test.manageTaskResources",
           "when": "view == taskManager",
           "group": "1_modification"
         }

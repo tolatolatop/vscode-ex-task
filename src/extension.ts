@@ -165,6 +165,11 @@ export function activate(context: vscode.ExtensionContext) {
 		await deleteTask(taskItem.task);
 	});
 
+	// 注册管理任务资源命令
+	const manageTaskResourcesDisposable = vscode.commands.registerCommand('patch-test.manageTaskResources', async (taskItem: TaskItem) => {
+		await manageTaskResources(taskItem.task);
+	});
+
 	context.subscriptions.push(
 		disposable,
 		generateTaskConfigDisposable,
@@ -176,7 +181,8 @@ export function activate(context: vscode.ExtensionContext) {
 		submitTaskFromTreeDisposable,
 		createTaskFromTemplateDisposable,
 		editTaskDisposable,
-		deleteTaskDisposable
+		deleteTaskDisposable,
+		manageTaskResourcesDisposable
 	);
 }
 
@@ -278,9 +284,12 @@ async function showTaskDetails(task: TaskDefinition) {
 			const command = task.command || '';
 			const groupKind = task.group?.kind || '无';
 			const hasProblemMatcher = task.problemMatcher && Array.isArray(task.problemMatcher) && task.problemMatcher.length > 0;
+			const resourceInfo = task.resource && Array.isArray(task.resource) && task.resource.length > 0
+				? `\n资源文件: ${task.resource.join(', ')}`
+				: '\n资源文件: 无';
 
 			vscode.window.showInformationMessage(
-				`任务详情:\n名称: ${task.label}\n命令: ${command} ${args}\n状态: ${status}\n${task.id !== -1 ? `远程ID: ${task.id}` : ''}\n分组: ${groupKind}\n问题匹配器: ${hasProblemMatcher ? '已配置' : '未配置'}`
+				`任务详情:\n名称: ${task.label}\n命令: ${command} ${args}\n状态: ${status}\n${task.id !== -1 ? `远程ID: ${task.id}` : ''}\n分组: ${groupKind}\n问题匹配器: ${hasProblemMatcher ? '已配置' : '未配置'}${resourceInfo}`
 			);
 		} else {
 			// 如果没找到具体行，仍然显示文件
@@ -728,6 +737,140 @@ async function deleteTask(task: TaskDefinition) {
 
 	} catch (error) {
 		vscode.window.showErrorMessage(`删除任务时出错: ${error}`);
+	}
+}
+
+// 管理任务资源
+async function manageTaskResources(task: TaskDefinition) {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
+
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		if (!fs.existsSync(patchTestJsonPath)) {
+			vscode.window.showErrorMessage('未找到任务配置文件');
+			return;
+		}
+
+		// 显示当前资源列表
+		const currentResources = task.resource || [];
+		const resourceList = currentResources.length > 0 ? currentResources.join('\n') : '无';
+
+		// 让用户选择操作
+		const action = await vscode.window.showQuickPick([
+			{ label: '查看当前资源', description: '显示当前任务的资源列表' },
+			{ label: '添加文件资源', description: '选择文件添加到资源列表' },
+			{ label: '添加文件夹资源', description: '选择文件夹添加到资源列表' },
+			{ label: '清空资源列表', description: '移除所有资源' },
+			{ label: '编辑资源列表', description: '手动编辑资源列表' }
+		], {
+			placeHolder: '选择操作'
+		});
+
+		if (!action) {
+			return;
+		}
+
+		switch (action.label) {
+			case '查看当前资源':
+				vscode.window.showInformationMessage(
+					`任务 "${task.label}" 的资源列表:\n${resourceList}`
+				);
+				break;
+
+			case '添加文件资源':
+				const fileUris = await vscode.window.showOpenDialog({
+					canSelectFiles: true,
+					canSelectFolders: false,
+					canSelectMany: true,
+					openLabel: '选择文件'
+				});
+				if (fileUris && fileUris.length > 0) {
+					await updateTaskResources(task, [...currentResources, ...fileUris.map(uri => uri.toString())]);
+				}
+				break;
+
+			case '添加文件夹资源':
+				const folderUris = await vscode.window.showOpenDialog({
+					canSelectFiles: false,
+					canSelectFolders: true,
+					canSelectMany: true,
+					openLabel: '选择文件夹'
+				});
+				if (folderUris && folderUris.length > 0) {
+					await updateTaskResources(task, [...currentResources, ...folderUris.map(uri => uri.toString())]);
+				}
+				break;
+
+			case '清空资源列表':
+				const confirm = await vscode.window.showWarningMessage(
+					`确定要清空任务 "${task.label}" 的资源列表吗？`,
+					'是', '否'
+				);
+				if (confirm === '是') {
+					await updateTaskResources(task, []);
+				}
+				break;
+
+			case '编辑资源列表':
+				const newResourceList = await vscode.window.showInputBox({
+					prompt: '请输入资源列表（用逗号分隔多个URI）',
+					placeHolder: 'file:///path/to/file1,file:///path/to/file2',
+					value: resourceList === '无' ? '' : currentResources.join(',')
+				});
+				if (newResourceList !== undefined) {
+					const resources = newResourceList.trim() ? newResourceList.split(',').map(s => s.trim()).filter(s => s) : [];
+					await updateTaskResources(task, resources);
+				}
+				break;
+		}
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`管理任务资源时出错: ${error}`);
+	}
+}
+
+// 更新任务资源
+async function updateTaskResources(task: TaskDefinition, newResources: string[]) {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
+
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		// 读取配置文件
+		const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
+		const tasksConfig: TaskConfig = JSON.parse(tasksConfigContent);
+
+		// 找到并更新任务
+		const taskIndex = tasksConfig.tasks.findIndex((t: TaskDefinition) => t.label === task.label);
+		if (taskIndex !== -1) {
+			tasksConfig.tasks[taskIndex].resource = newResources;
+
+			// 写回文件
+			fs.writeFileSync(patchTestJsonPath, JSON.stringify(tasksConfig, null, 2));
+
+			// 刷新任务树
+			taskTreeDataProvider.refresh();
+
+			vscode.window.showInformationMessage(
+				`已更新任务 "${task.label}" 的资源列表，共 ${newResources.length} 个资源`
+			);
+		} else {
+			vscode.window.showErrorMessage(`未找到任务 "${task.label}"`);
+		}
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`更新任务资源时出错: ${error}`);
 	}
 }
 

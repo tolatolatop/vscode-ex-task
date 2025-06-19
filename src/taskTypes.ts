@@ -19,6 +19,7 @@ export interface TaskDefinition {
     description?: string;
     dependsOn?: string[];
     options?: TaskOptions;
+    resource?: string[]; // 存储URI列表
 }
 
 // 任务分组接口
@@ -87,7 +88,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: []
         }
     },
     {
@@ -108,7 +110,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: []
         }
     },
     {
@@ -129,7 +132,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: []
         }
     },
     {
@@ -151,7 +155,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: []
         }
     },
     {
@@ -172,7 +177,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: []
         }
     },
     {
@@ -193,7 +199,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: ['file:///path/to/main.py']
         }
     },
     {
@@ -214,7 +221,8 @@ export const DEFAULT_TASK_TEMPLATES: TaskTemplate[] = [
                 focus: false,
                 panel: 'shared'
             },
-            problemMatcher: []
+            problemMatcher: [],
+            resource: ['file:///path/to/Dockerfile']
         }
     }
 ];
