@@ -197,24 +197,74 @@ async function showTaskDetails(task: TaskDefinition) {
 		const text = document.getText();
 		const lines = text.split('\n');
 
-		// 查找任务的行号
+		// 查找任务的行号 - 使用更精确的匹配
 		let taskLineNumber = -1;
+		let taskStartLine = -1;
+		let taskEndLine = -1;
+		let braceCount = 0;
+		let inTasksArray = false;
+		let currentTaskStart = -1;
+
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i].trim();
-			// 查找包含任务标签的行
-			if (line.includes(`"label"`) && line.includes(`"${task.label}"`)) {
-				taskLineNumber = i;
+
+			// 检查是否进入tasks数组
+			if (line.includes('"tasks"') && line.includes('[')) {
+				inTasksArray = true;
+				continue;
+			}
+
+			// 如果不在tasks数组中，跳过
+			if (!inTasksArray) {
+				continue;
+			}
+
+			// 检查是否遇到任务开始（左大括号）
+			if (line.includes('{')) {
+				if (braceCount === 0) {
+					currentTaskStart = i;
+				}
+				braceCount++;
+			}
+
+			// 检查是否遇到任务结束（右大括号）
+			if (line.includes('}')) {
+				braceCount--;
+				if (braceCount === 0 && currentTaskStart !== -1) {
+					// 检查这个任务是否是我们要找的任务
+					for (let j = currentTaskStart; j <= i; j++) {
+						const taskLine = lines[j].trim();
+						if (taskLine.includes(`"label"`) && taskLine.includes(`"${task.label}"`)) {
+							taskLineNumber = j;
+							taskStartLine = currentTaskStart;
+							taskEndLine = i;
+							break;
+						}
+					}
+					currentTaskStart = -1;
+				}
+			}
+
+			// 如果找到了任务，跳出循环
+			if (taskLineNumber !== -1) {
 				break;
 			}
 		}
 
-		// 如果找到了任务，跳转到对应行
+		// 如果找到了任务，跳转到对应行并高亮显示
 		if (taskLineNumber !== -1) {
 			const position = new vscode.Position(taskLineNumber, 0);
 			editor.selection = new vscode.Selection(position, position);
 			editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
 
-			// 高亮显示任务信息
+			// 可选：高亮显示整个任务块
+			if (taskStartLine !== -1 && taskEndLine !== -1) {
+				const startPos = new vscode.Position(taskStartLine, 0);
+				const endPos = new vscode.Position(taskEndLine, lines[taskEndLine].length);
+				editor.selection = new vscode.Selection(startPos, endPos);
+			}
+
+			// 显示任务信息
 			const status = task.id === -1 ? '待提交' : '已提交';
 			const args = task.args && Array.isArray(task.args) ? task.args.join(' ') : '';
 			const command = task.command || '';
