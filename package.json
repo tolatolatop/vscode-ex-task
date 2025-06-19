@@ -4,7 +4,7 @@
   "description": "",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.90.0"
   },
   "categories": [
     "Other"
@@ -13,10 +13,28 @@
     "onCommand:patch-test.helloWorld",
     "onCommand:patch-test.generateTaskConfig",
     "onCommand:patch-test.submitTask",
-    "onCommand:patch-test.openTaskManager"
+    "onCommand:patch-test.openTaskManager",
+    "onView:taskManager"
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "task-manager-sidebar",
+          "title": "任务管理器",
+          "icon": "$(tasklist)"
+        }
+      ]
+    },
+    "views": {
+      "task-manager-sidebar": [
+        {
+          "id": "taskManager",
+          "name": "任务列表"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "patch-test.helloWorld",
@@ -33,6 +51,52 @@
       {
         "command": "patch-test.openTaskManager",
         "title": "打开任务管理器"
+      },
+      {
+        "command": "patch-test.refreshTasks",
+        "title": "刷新任务列表",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "patch-test.viewTaskDetails",
+        "title": "查看任务详情"
+      },
+      {
+        "command": "patch-test.submitSingleTask",
+        "title": "提交任务"
+      },
+      {
+        "command": "patch-test.submitTaskFromTree",
+        "title": "提交任务"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "patch-test.refreshTasks",
+          "when": "view == taskManager",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "patch-test.viewTaskDetails",
+          "when": "view == taskManager",
+          "group": "inline"
+        },
+        {
+          "command": "patch-test.submitTaskFromTree",
+          "when": "view == taskManager && viewItem == pendingTask",
+          "group": "inline"
+        }
+      ]
+    },
+    "contexts": [
+      {
+        "key": "workspaceHasTaskConfig",
+        "operator": "equals",
+        "operand": true,
+        "when": "resourceExtname == .json && resourceFilename == tasks"
       }
     ]
   },
