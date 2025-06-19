@@ -68,6 +68,10 @@
       {
         "command": "patch-test.submitTaskFromTree",
         "title": "提交任务"
+      },
+      {
+        "command": "patch-test.createTaskFromTemplate",
+        "title": "从模板创建任务"
       }
     ],
     "menus": {

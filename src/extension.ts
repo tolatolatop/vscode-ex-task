@@ -3,6 +3,14 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import {
+	TaskDefinition,
+	TaskConfig,
+	DEFAULT_TASK_CONFIG,
+	TaskTemplateManagerImpl,
+	TaskTemplateManager,
+	TreeViewTaskItem
+} from './taskTypes';
 
 // 任务数据提供者类
 class TaskTreeDataProvider implements vscode.TreeDataProvider<TaskItem> {
@@ -39,9 +47,9 @@ class TaskTreeDataProvider implements vscode.TreeDataProvider<TaskItem> {
 			}
 
 			const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
-			const tasksConfig = JSON.parse(tasksConfigContent);
+			const tasksConfig: TaskConfig = JSON.parse(tasksConfigContent);
 
-			return (tasksConfig.tasks || []).map((task: any) => new TaskItem(task));
+			return (tasksConfig.tasks || []).map((task: TaskDefinition) => new TaskItem(task));
 		} catch (error) {
 			console.error('读取任务配置失败:', error);
 			return [];
@@ -52,7 +60,7 @@ class TaskTreeDataProvider implements vscode.TreeDataProvider<TaskItem> {
 // 任务项类
 class TaskItem extends vscode.TreeItem {
 	constructor(
-		public readonly task: any
+		public readonly task: TaskDefinition
 	) {
 		super(
 			task.label,
@@ -82,6 +90,7 @@ class TaskItem extends vscode.TreeItem {
 
 // 全局变量
 let taskTreeDataProvider: TaskTreeDataProvider;
+let taskTemplateManager: TaskTemplateManager;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -90,6 +99,9 @@ export function activate(context: vscode.ExtensionContext) {
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
 	// This line of code will only be executed once when your extension is activated
 	console.log('Congratulations, your extension "patch-test" is now active!');
+
+	// 初始化任务模板管理器
+	taskTemplateManager = new TaskTemplateManagerImpl();
 
 	// 初始化任务树数据提供者
 	taskTreeDataProvider = new TaskTreeDataProvider();
@@ -128,18 +140,23 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// 注册查看任务详情命令
-	const viewTaskDetailsDisposable = vscode.commands.registerCommand('patch-test.viewTaskDetails', (task: any) => {
+	const viewTaskDetailsDisposable = vscode.commands.registerCommand('patch-test.viewTaskDetails', (task: TaskDefinition) => {
 		showTaskDetails(task);
 	});
 
 	// 注册提交单个任务命令
-	const submitSingleTaskDisposable = vscode.commands.registerCommand('patch-test.submitSingleTask', async (task: any) => {
+	const submitSingleTaskDisposable = vscode.commands.registerCommand('patch-test.submitSingleTask', async (task: TaskDefinition) => {
 		await submitSingleTask(task);
 	});
 
 	// 注册右键菜单命令
 	const submitTaskFromTreeDisposable = vscode.commands.registerCommand('patch-test.submitTaskFromTree', async (taskItem: TaskItem) => {
 		await submitSingleTask(taskItem.task);
+	});
+
+	// 注册从模板创建任务命令
+	const createTaskFromTemplateDisposable = vscode.commands.registerCommand('patch-test.createTaskFromTemplate', async () => {
+		await createTaskFromTemplate();
 	});
 
 	context.subscriptions.push(
@@ -150,25 +167,26 @@ export function activate(context: vscode.ExtensionContext) {
 		refreshTasksDisposable,
 		viewTaskDetailsDisposable,
 		submitSingleTaskDisposable,
-		submitTaskFromTreeDisposable
+		submitTaskFromTreeDisposable,
+		createTaskFromTemplateDisposable
 	);
 }
 
 // 显示任务详情
-function showTaskDetails(task: any) {
+function showTaskDetails(task: TaskDefinition) {
 	const status = task.id === -1 ? '待提交' : '已提交';
 	const details = `任务名称: ${task.label}
 命令: ${task.command} ${task.args.join(' ')}
 状态: ${status}
 ${task.id !== -1 ? `远程ID: ${task.id}` : ''}
 分组: ${task.group?.kind || '无'}
-问题匹配器: ${task.problemMatcher?.length > 0 ? '已配置' : '未配置'}`;
+问题匹配器: ${task.problemMatcher && task.problemMatcher.length > 0 ? '已配置' : '未配置'}`;
 
 	vscode.window.showInformationMessage(details);
 }
 
 // 提交单个任务
-async function submitSingleTask(task: any) {
+async function submitSingleTask(task: TaskDefinition) {
 	try {
 		const workspaceFolders = vscode.workspace.workspaceFolders;
 		if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -218,9 +236,9 @@ async function submitSingleTask(task: any) {
 
 			// 更新任务配置中的ID
 			const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
-			const tasksConfig = JSON.parse(tasksConfigContent);
+			const tasksConfig: TaskConfig = JSON.parse(tasksConfigContent);
 
-			const taskIndex = tasksConfig.tasks.findIndex((t: any) => t.label === task.label);
+			const taskIndex = tasksConfig.tasks.findIndex((t: TaskDefinition) => t.label === task.label);
 			if (taskIndex !== -1) {
 				tasksConfig.tasks[taskIndex].id = remoteTaskId;
 
@@ -260,46 +278,6 @@ async function generateTaskConfig() {
 			fs.mkdirSync(vscodeDir, { recursive: true });
 		}
 
-		// 默认任务配置模板
-		const defaultTaskConfig = {
-			version: "2.0.0",
-			tasks: [
-				{
-					id: -1,
-					label: "构建项目",
-					type: "shell",
-					command: "npm",
-					args: ["run", "build"],
-					group: {
-						kind: "build",
-						isDefault: true
-					},
-					presentation: {
-						echo: true,
-						reveal: "always",
-						focus: false,
-						panel: "shared"
-					},
-					problemMatcher: []
-				},
-				{
-					id: -1,
-					label: "运行测试",
-					type: "shell",
-					command: "npm",
-					args: ["test"],
-					group: "test",
-					presentation: {
-						echo: true,
-						reveal: "always",
-						focus: false,
-						panel: "shared"
-					},
-					problemMatcher: []
-				}
-			]
-		};
-
 		// 检查是否已存在patch-test.json文件
 		if (fs.existsSync(patchTestJsonPath)) {
 			const overwrite = await vscode.window.showWarningMessage(
@@ -312,7 +290,7 @@ async function generateTaskConfig() {
 		}
 
 		// 写入任务配置文件
-		fs.writeFileSync(patchTestJsonPath, JSON.stringify(defaultTaskConfig, null, 2));
+		fs.writeFileSync(patchTestJsonPath, JSON.stringify(DEFAULT_TASK_CONFIG, null, 2));
 
 		vscode.window.showInformationMessage('任务配置已成功生成在 .vscode/patch-test.json 文件中');
 
@@ -359,10 +337,10 @@ async function submitTaskToRemote() {
 
 		// 读取现有的任务配置
 		const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
-		const tasksConfig = JSON.parse(tasksConfigContent);
+		const tasksConfig: TaskConfig = JSON.parse(tasksConfigContent);
 
 		// 过滤出未提交的任务（id为-1的任务）
-		const unsubmittedTasks = tasksConfig.tasks.filter((task: any) => task.id === -1);
+		const unsubmittedTasks = tasksConfig.tasks.filter((task: TaskDefinition) => task.id === -1);
 
 		if (unsubmittedTasks.length === 0) {
 			vscode.window.showInformationMessage('所有任务都已提交完成！');
@@ -370,7 +348,7 @@ async function submitTaskToRemote() {
 		}
 
 		// 让用户选择要提交的任务
-		const taskLabels = unsubmittedTasks.map((task: any) => task.label);
+		const taskLabels = unsubmittedTasks.map((task: TaskDefinition) => task.label);
 		const selectedTaskLabel = await vscode.window.showQuickPick(taskLabels, {
 			placeHolder: '选择要提交的任务'
 		});
@@ -380,7 +358,7 @@ async function submitTaskToRemote() {
 		}
 
 		// 找到选中的任务
-		const selectedTask = tasksConfig.tasks.find((task: any) => task.label === selectedTaskLabel);
+		const selectedTask = tasksConfig.tasks.find((task: TaskDefinition) => task.label === selectedTaskLabel);
 
 		// 显示输入对话框获取任务描述
 		const taskDescription = await vscode.window.showInputBox({
@@ -428,7 +406,7 @@ async function submitTaskToRemote() {
 			progress.report({ increment: 100 });
 
 			// 更新任务配置中的ID
-			const taskIndex = tasksConfig.tasks.findIndex((task: any) => task.label === selectedTaskLabel);
+			const taskIndex = tasksConfig.tasks.findIndex((task: TaskDefinition) => task.label === selectedTaskLabel);
 			if (taskIndex !== -1) {
 				tasksConfig.tasks[taskIndex].id = remoteTaskId;
 
@@ -457,6 +435,91 @@ async function submitTaskToRemote() {
 
 	} catch (error) {
 		vscode.window.showErrorMessage(`提交任务时出错: ${error}`);
+	}
+}
+
+// 从模板创建任务
+async function createTaskFromTemplate() {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
+
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		// 获取所有可用的模板
+		const templates = taskTemplateManager.getTemplates();
+		const templateOptions = templates.map(template => ({
+			label: template.name,
+			description: template.description,
+			detail: `${template.template.command} ${template.template.args.join(' ')}`
+		}));
+
+		// 让用户选择模板
+		const selectedTemplate = await vscode.window.showQuickPick(templateOptions, {
+			placeHolder: '选择任务模板'
+		});
+
+		if (!selectedTemplate) {
+			return;
+		}
+
+		// 获取选中的模板
+		const template = taskTemplateManager.getTemplateByName(selectedTemplate.label);
+		if (!template) {
+			vscode.window.showErrorMessage('模板不存在');
+			return;
+		}
+
+		// 让用户输入任务标签
+		const taskLabel = await vscode.window.showInputBox({
+			prompt: '请输入任务标签',
+			placeHolder: '例如：构建项目',
+			value: template.template.label
+		});
+
+		if (!taskLabel) {
+			return;
+		}
+
+		// 创建新任务
+		const newTask = taskTemplateManager.createTaskFromTemplate(selectedTemplate.label);
+		if (!newTask) {
+			vscode.window.showErrorMessage('创建任务失败');
+			return;
+		}
+
+		// 更新任务标签
+		newTask.label = taskLabel;
+
+		// 读取现有配置或创建新配置
+		let tasksConfig: TaskConfig;
+		if (fs.existsSync(patchTestJsonPath)) {
+			const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
+			tasksConfig = JSON.parse(tasksConfigContent);
+		} else {
+			tasksConfig = {
+				version: "2.0.0",
+				tasks: []
+			};
+		}
+
+		// 添加新任务
+		tasksConfig.tasks.push(newTask);
+
+		// 写入配置文件
+		fs.writeFileSync(patchTestJsonPath, JSON.stringify(tasksConfig, null, 2));
+
+		// 刷新任务树
+		taskTreeDataProvider.refresh();
+
+		vscode.window.showInformationMessage(`已成功创建任务 "${taskLabel}"`);
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`创建任务时出错: ${error}`);
 	}
 }
 
