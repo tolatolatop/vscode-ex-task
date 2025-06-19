@@ -140,8 +140,8 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// 注册查看任务详情命令
-	const viewTaskDetailsDisposable = vscode.commands.registerCommand('patch-test.viewTaskDetails', (task: TaskDefinition) => {
-		showTaskDetails(task);
+	const viewTaskDetailsDisposable = vscode.commands.registerCommand('patch-test.viewTaskDetails', async (task: TaskDefinition) => {
+		await showTaskDetails(task);
 	});
 
 	// 注册提交单个任务命令
@@ -173,16 +173,65 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 // 显示任务详情
-function showTaskDetails(task: TaskDefinition) {
-	const status = task.id === -1 ? '待提交' : '已提交';
-	const details = `任务名称: ${task.label}
-命令: ${task.command} ${task.args.join(' ')}
-状态: ${status}
-${task.id !== -1 ? `远程ID: ${task.id}` : ''}
-分组: ${task.group?.kind || '无'}
-问题匹配器: ${task.problemMatcher && task.problemMatcher.length > 0 ? '已配置' : '未配置'}`;
+async function showTaskDetails(task: TaskDefinition) {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
 
-	vscode.window.showInformationMessage(details);
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		if (!fs.existsSync(patchTestJsonPath)) {
+			vscode.window.showErrorMessage('未找到任务配置文件');
+			return;
+		}
+
+		// 打开文件
+		const document = await vscode.workspace.openTextDocument(patchTestJsonPath);
+		const editor = await vscode.window.showTextDocument(document);
+
+		// 查找任务在文件中的位置
+		const text = document.getText();
+		const lines = text.split('\n');
+
+		// 查找任务的行号
+		let taskLineNumber = -1;
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			// 查找包含任务标签的行
+			if (line.includes(`"label"`) && line.includes(`"${task.label}"`)) {
+				taskLineNumber = i;
+				break;
+			}
+		}
+
+		// 如果找到了任务，跳转到对应行
+		if (taskLineNumber !== -1) {
+			const position = new vscode.Position(taskLineNumber, 0);
+			editor.selection = new vscode.Selection(position, position);
+			editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+
+			// 高亮显示任务信息
+			const status = task.id === -1 ? '待提交' : '已提交';
+			const args = task.args && Array.isArray(task.args) ? task.args.join(' ') : '';
+			const command = task.command || '';
+			const groupKind = task.group?.kind || '无';
+			const hasProblemMatcher = task.problemMatcher && Array.isArray(task.problemMatcher) && task.problemMatcher.length > 0;
+
+			vscode.window.showInformationMessage(
+				`任务详情:\n名称: ${task.label}\n命令: ${command} ${args}\n状态: ${status}\n${task.id !== -1 ? `远程ID: ${task.id}` : ''}\n分组: ${groupKind}\n问题匹配器: ${hasProblemMatcher ? '已配置' : '未配置'}`
+			);
+		} else {
+			// 如果没找到具体行，仍然显示文件
+			vscode.window.showWarningMessage(`已打开配置文件，但未找到任务 "${task.label}" 的具体位置`);
+		}
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`打开任务详情时出错: ${error}`);
+	}
 }
 
 // 提交单个任务
