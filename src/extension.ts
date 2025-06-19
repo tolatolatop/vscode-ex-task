@@ -79,8 +79,8 @@ class TaskItem extends vscode.TreeItem {
 			this.contextValue = 'submittedTask';
 		}
 
-		// 设置描述为操作图标（这里用文本表示，实际VS Code TreeView不支持多个图标）
-		this.description = task.id === -1 ? '📤 👁️' : '👁️';
+		// 不设置description，保持简洁
+		this.description = '';
 	}
 }
 

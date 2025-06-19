@@ -59,27 +59,33 @@
       },
       {
         "command": "patch-test.viewTaskDetails",
-        "title": "查看任务详情"
+        "title": "查看任务详情",
+        "icon": "$(eye)"
       },
       {
         "command": "patch-test.submitSingleTask",
-        "title": "提交任务"
+        "title": "提交任务",
+        "icon": "$(arrow-up)"
       },
       {
         "command": "patch-test.submitTaskFromTree",
-        "title": "提交任务"
+        "title": "提交任务",
+        "icon": "$(arrow-up)"
       },
       {
         "command": "patch-test.createTaskFromTemplate",
-        "title": "从模板创建任务"
+        "title": "从模板创建任务",
+        "icon": "$(plus)"
       },
       {
         "command": "patch-test.editTask",
-        "title": "编辑任务"
+        "title": "编辑任务",
+        "icon": "$(edit)"
       },
       {
         "command": "patch-test.deleteTask",
-        "title": "删除任务"
+        "title": "删除任务",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
