@@ -91,6 +91,11 @@
         "command": "patch-test.manageTaskResources",
         "title": "管理任务资源",
         "icon": "$(files)"
+      },
+      {
+        "command": "patch-test.openNetworkResource",
+        "title": "打开网络资源",
+        "icon": "$(globe)"
       }
     ],
     "menus": {

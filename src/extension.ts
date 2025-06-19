@@ -3,6 +3,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import {
 	TaskDefinition,
 	TaskConfig,
@@ -24,15 +25,28 @@ class ResourceItem extends vscode.TreeItem {
 
 		this.tooltip = resourceUriString;
 		this.description = resourceUriString;
-		this.iconPath = new vscode.ThemeIcon('file');
-		this.resourceUri = vscode.Uri.parse(resourceUriString);
 
-		// 设置命令：点击资源项时打开文件
-		this.command = {
-			command: 'vscode.open',
-			title: '打开资源',
-			arguments: [this.resourceUri]
-		};
+		// 根据资源类型设置图标和命令
+		if (this.isNetworkResource(resourceUriString)) {
+			this.iconPath = new vscode.ThemeIcon('globe');
+			this.command = {
+				command: 'patch-test.openNetworkResource',
+				title: '打开网络资源',
+				arguments: [resourceUriString]
+			};
+		} else {
+			this.iconPath = new vscode.ThemeIcon('file');
+			this.resourceUri = vscode.Uri.parse(resourceUriString);
+			this.command = {
+				command: 'vscode.open',
+				title: '打开资源',
+				arguments: [this.resourceUri]
+			};
+		}
+	}
+
+	private isNetworkResource(uri: string): boolean {
+		return uri.startsWith('http://') || uri.startsWith('https://');
 	}
 }
 
@@ -204,6 +218,11 @@ export function activate(context: vscode.ExtensionContext) {
 		await manageTaskResources(taskItem.task);
 	});
 
+	// 注册打开网络资源命令
+	const openNetworkResourceDisposable = vscode.commands.registerCommand('patch-test.openNetworkResource', async (resourceUri: string) => {
+		await openNetworkResource(resourceUri);
+	});
+
 	context.subscriptions.push(
 		disposable,
 		generateTaskConfigDisposable,
@@ -216,7 +235,8 @@ export function activate(context: vscode.ExtensionContext) {
 		createTaskFromTemplateDisposable,
 		editTaskDisposable,
 		deleteTaskDisposable,
-		manageTaskResourcesDisposable
+		manageTaskResourcesDisposable,
+		openNetworkResourceDisposable
 	);
 }
 
@@ -799,7 +819,7 @@ async function manageTaskResources(task: TaskDefinition) {
 		const action = await vscode.window.showQuickPick([
 			{ label: '查看当前资源', description: '显示当前任务的资源列表' },
 			{ label: '添加文件资源', description: '选择文件添加到资源列表' },
-			{ label: '添加文件夹资源', description: '选择文件夹添加到资源列表' },
+			{ label: '添加网络资源', description: '添加HTTP/HTTPS网络资源' },
 			{ label: '清空资源列表', description: '移除所有资源' },
 			{ label: '编辑资源列表', description: '手动编辑资源列表' }
 		], {
@@ -829,15 +849,13 @@ async function manageTaskResources(task: TaskDefinition) {
 				}
 				break;
 
-			case '添加文件夹资源':
-				const folderUris = await vscode.window.showOpenDialog({
-					canSelectFiles: false,
-					canSelectFolders: true,
-					canSelectMany: true,
-					openLabel: '选择文件夹'
+			case '添加网络资源':
+				const networkResource = await vscode.window.showInputBox({
+					prompt: '请输入网络资源URI',
+					placeHolder: '例如：http://example.com/resource.zip'
 				});
-				if (folderUris && folderUris.length > 0) {
-					await updateTaskResources(task, [...currentResources, ...folderUris.map(uri => uri.toString())]);
+				if (networkResource) {
+					await updateTaskResources(task, [...currentResources, networkResource]);
 				}
 				break;
 
@@ -906,6 +924,93 @@ async function updateTaskResources(task: TaskDefinition, newResources: string[])
 	} catch (error) {
 		vscode.window.showErrorMessage(`更新任务资源时出错: ${error}`);
 	}
+}
+
+// 打开网络资源
+async function openNetworkResource(resourceUri: string) {
+	try {
+		// 显示进度条
+		await vscode.window.withProgress({
+			location: vscode.ProgressLocation.Notification,
+			title: `正在下载网络资源...`,
+			cancellable: false
+		}, async (progress) => {
+			progress.report({ increment: 0 });
+
+			// 下载网络资源
+			const response = await fetch(resourceUri);
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+			}
+
+			progress.report({ increment: 50 });
+
+			// 获取内容
+			const content = await response.text();
+			const contentType = response.headers.get('content-type') || 'text/plain';
+
+			progress.report({ increment: 100 });
+
+			// 创建临时文件
+			const tempDir = path.join(os.tmpdir(), 'patch-test-resources');
+			if (!fs.existsSync(tempDir)) {
+				fs.mkdirSync(tempDir, { recursive: true });
+			}
+
+			// 生成文件名
+			const url = new URL(resourceUri);
+			const fileName = path.basename(url.pathname) || 'network-resource';
+			const fileExtension = getFileExtension(contentType, fileName);
+			const tempFilePath = path.join(tempDir, `${fileName}${fileExtension}`);
+
+			// 写入临时文件
+			fs.writeFileSync(tempFilePath, content, 'utf8');
+
+			// 以只读方式打开文件
+			const document = await vscode.workspace.openTextDocument(tempFilePath);
+			await vscode.window.showTextDocument(document, { preview: false });
+
+			// 监听文档保存事件，阻止保存操作
+			const saveListener = vscode.workspace.onWillSaveTextDocument((e) => {
+				if (e.document.uri.fsPath === tempFilePath) {
+					e.waitUntil(Promise.resolve());
+					vscode.window.showWarningMessage('网络资源文件为只读，无法保存');
+				}
+			});
+
+			vscode.window.showInformationMessage(
+				`已下载并打开网络资源: ${fileName}${fileExtension} (只读模式)`
+			);
+		});
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`下载网络资源失败: ${error}`);
+	}
+}
+
+// 根据内容类型获取文件扩展名
+function getFileExtension(contentType: string, fileName: string): string {
+	// 如果文件名已有扩展名，直接返回
+	if (path.extname(fileName)) {
+		return '';
+	}
+
+	// 根据内容类型确定扩展名
+	const typeMap: { [key: string]: string } = {
+		'text/plain': '.txt',
+		'text/html': '.html',
+		'text/css': '.css',
+		'text/javascript': '.js',
+		'application/json': '.json',
+		'application/xml': '.xml',
+		'text/xml': '.xml',
+		'application/yaml': '.yaml',
+		'text/yaml': '.yaml',
+		'application/yml': '.yml',
+		'text/yml': '.yml'
+	};
+
+	return typeMap[contentType] || '.txt';
 }
 
 // This method is called when your extension is deactivated
