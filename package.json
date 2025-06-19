@@ -10,11 +10,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:patch-test.helloWorld",
-    "onCommand:patch-test.generateTaskConfig",
-    "onCommand:patch-test.submitTask",
-    "onCommand:patch-test.openTaskManager",
-    "onView:taskManager"
+    "onFile:patch-test.json",
+    "workspaceContains:.vscode/patch-test.json"
   ],
   "main": "./dist/extension.js",
   "contributes": {

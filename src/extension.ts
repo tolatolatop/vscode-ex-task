@@ -39,6 +39,28 @@ export function activate(context: vscode.ExtensionContext) {
 	// 注册任务树视图
 	vscode.window.registerTreeDataProvider('taskManager', taskTreeDataProvider);
 
+	// 注册文件保存监听器，当patch-test.json保存时自动刷新任务树
+	const fileSaveListener = vscode.workspace.onDidSaveTextDocument((document) => {
+		try {
+			console.log('文件保存事件触发，文件名:', document.fileName);
+
+			// 检查是否是patch-test.json文件
+			if (document.fileName.includes('patch-test.json')) {
+				console.log('检测到patch-test.json文件保存，正在刷新任务树...');
+
+				// 延迟刷新，确保文件写入完成
+				setTimeout(() => {
+					taskTreeDataProvider.refresh();
+					vscode.window.showInformationMessage('检测到patch-test.json已保存，任务树已刷新');
+					console.log('任务树刷新完成');
+				}, 100);
+			}
+		} catch (error) {
+			console.error('文件保存监听器出错:', error);
+			vscode.window.showErrorMessage(`文件保存监听器出错: ${error}`);
+		}
+	});
+
 	// The command has been defined in the package.json file
 	// Now provide the implementation of the command with registerCommand
 	// The commandId parameter must match the command field in package.json
@@ -122,7 +144,8 @@ export function activate(context: vscode.ExtensionContext) {
 		editTaskDisposable,
 		deleteTaskDisposable,
 		manageTaskResourcesDisposable,
-		openNetworkResourceDisposable
+		openNetworkResourceDisposable,
+		fileSaveListener
 	);
 }
 
