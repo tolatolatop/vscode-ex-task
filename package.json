@@ -72,6 +72,14 @@
       {
         "command": "patch-test.createTaskFromTemplate",
         "title": "从模板创建任务"
+      },
+      {
+        "command": "patch-test.editTask",
+        "title": "编辑任务"
+      },
+      {
+        "command": "patch-test.deleteTask",
+        "title": "删除任务"
       }
     ],
     "menus": {
@@ -92,6 +100,26 @@
           "command": "patch-test.submitTaskFromTree",
           "when": "view == taskManager && viewItem == pendingTask",
           "group": "inline"
+        },
+        {
+          "command": "patch-test.viewTaskDetails",
+          "when": "view == taskManager",
+          "group": "1_modification"
+        },
+        {
+          "command": "patch-test.submitTaskFromTree",
+          "when": "view == taskManager && viewItem == pendingTask",
+          "group": "1_modification"
+        },
+        {
+          "command": "patch-test.editTask",
+          "when": "view == taskManager",
+          "group": "1_modification"
+        },
+        {
+          "command": "patch-test.deleteTask",
+          "when": "view == taskManager",
+          "group": "1_modification"
         }
       ]
     },

@@ -67,24 +67,20 @@ class TaskItem extends vscode.TreeItem {
 			vscode.TreeItemCollapsibleState.None
 		);
 
-		this.tooltip = `${task.label} - ${task.command} ${task.args.join(' ')}`;
-		this.description = `${task.command} ${task.args.join(' ')}`;
+		// 设置工具提示
+		this.tooltip = `${task.label} - ${task.command} ${task.args?.join(' ') || ''}`;
 
-		// 根据任务状态设置图标和上下文值
+		// 根据任务状态设置图标
 		if (task.id === -1) {
-			this.iconPath = new vscode.ThemeIcon('clock');
+			this.iconPath = new vscode.ThemeIcon('clock', new vscode.ThemeColor('warningForeground'));
 			this.contextValue = 'pendingTask';
 		} else {
-			this.iconPath = new vscode.ThemeIcon('check');
+			this.iconPath = new vscode.ThemeIcon('check', new vscode.ThemeColor('charts.green'));
 			this.contextValue = 'submittedTask';
 		}
 
-		// 设置命令
-		this.command = {
-			command: 'patch-test.viewTaskDetails',
-			title: '查看任务详情',
-			arguments: [task]
-		};
+		// 设置描述为操作图标（这里用文本表示，实际VS Code TreeView不支持多个图标）
+		this.description = task.id === -1 ? '📤 👁️' : '👁️';
 	}
 }
 
@@ -159,6 +155,16 @@ export function activate(context: vscode.ExtensionContext) {
 		await createTaskFromTemplate();
 	});
 
+	// 注册编辑任务命令
+	const editTaskDisposable = vscode.commands.registerCommand('patch-test.editTask', async (taskItem: TaskItem) => {
+		await editTask(taskItem.task);
+	});
+
+	// 注册删除任务命令
+	const deleteTaskDisposable = vscode.commands.registerCommand('patch-test.deleteTask', async (taskItem: TaskItem) => {
+		await deleteTask(taskItem.task);
+	});
+
 	context.subscriptions.push(
 		disposable,
 		generateTaskConfigDisposable,
@@ -168,7 +174,9 @@ export function activate(context: vscode.ExtensionContext) {
 		viewTaskDetailsDisposable,
 		submitSingleTaskDisposable,
 		submitTaskFromTreeDisposable,
-		createTaskFromTemplateDisposable
+		createTaskFromTemplateDisposable,
+		editTaskDisposable,
+		deleteTaskDisposable
 	);
 }
 
@@ -619,6 +627,107 @@ async function createTaskFromTemplate() {
 
 	} catch (error) {
 		vscode.window.showErrorMessage(`创建任务时出错: ${error}`);
+	}
+}
+
+// 编辑任务
+async function editTask(task: TaskDefinition) {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
+
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		if (!fs.existsSync(patchTestJsonPath)) {
+			vscode.window.showErrorMessage('未找到任务配置文件');
+			return;
+		}
+
+		// 打开文件并跳转到任务位置
+		const document = await vscode.workspace.openTextDocument(patchTestJsonPath);
+		const editor = await vscode.window.showTextDocument(document);
+
+		// 查找任务在文件中的位置
+		const text = document.getText();
+		const lines = text.split('\n');
+
+		// 查找任务的行号
+		let taskLineNumber = -1;
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			if (line.includes(`"label"`) && line.includes(`"${task.label}"`)) {
+				taskLineNumber = i;
+				break;
+			}
+		}
+
+		if (taskLineNumber !== -1) {
+			const position = new vscode.Position(taskLineNumber, 0);
+			editor.selection = new vscode.Selection(position, position);
+			editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+			vscode.window.showInformationMessage(`已跳转到任务 "${task.label}" 的编辑位置`);
+		} else {
+			vscode.window.showWarningMessage(`未找到任务 "${task.label}" 的位置`);
+		}
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`编辑任务时出错: ${error}`);
+	}
+}
+
+// 删除任务
+async function deleteTask(task: TaskDefinition) {
+	try {
+		const workspaceFolders = vscode.workspace.workspaceFolders;
+		if (!workspaceFolders || workspaceFolders.length === 0) {
+			vscode.window.showErrorMessage('没有找到工作区文件夹');
+			return;
+		}
+
+		const workspaceRoot = workspaceFolders[0].uri.fsPath;
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
+
+		if (!fs.existsSync(patchTestJsonPath)) {
+			vscode.window.showErrorMessage('未找到任务配置文件');
+			return;
+		}
+
+		// 确认删除
+		const confirm = await vscode.window.showWarningMessage(
+			`确定要删除任务 "${task.label}" 吗？`,
+			'是', '否'
+		);
+
+		if (confirm !== '是') {
+			return;
+		}
+
+		// 读取配置文件
+		const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
+		const tasksConfig: TaskConfig = JSON.parse(tasksConfigContent);
+
+		// 找到并删除任务
+		const taskIndex = tasksConfig.tasks.findIndex((t: TaskDefinition) => t.label === task.label);
+		if (taskIndex !== -1) {
+			tasksConfig.tasks.splice(taskIndex, 1);
+
+			// 写回文件
+			fs.writeFileSync(patchTestJsonPath, JSON.stringify(tasksConfig, null, 2));
+
+			// 刷新任务树
+			taskTreeDataProvider.refresh();
+
+			vscode.window.showInformationMessage(`已成功删除任务 "${task.label}"`);
+		} else {
+			vscode.window.showErrorMessage(`未找到任务 "${task.label}"`);
+		}
+
+	} catch (error) {
+		vscode.window.showErrorMessage(`删除任务时出错: ${error}`);
 	}
 }
 
