@@ -32,13 +32,13 @@ class TaskTreeDataProvider implements vscode.TreeDataProvider<TaskItem> {
 			}
 
 			const workspaceRoot = workspaceFolders[0].uri.fsPath;
-			const tasksJsonPath = path.join(workspaceRoot, '.vscode', 'tasks.json');
+			const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
 
-			if (!fs.existsSync(tasksJsonPath)) {
+			if (!fs.existsSync(patchTestJsonPath)) {
 				return [];
 			}
 
-			const tasksConfigContent = fs.readFileSync(tasksJsonPath, 'utf8');
+			const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
 			const tasksConfig = JSON.parse(tasksConfigContent);
 
 			return (tasksConfig.tasks || []).map((task: any) => new TaskItem(task));
@@ -178,7 +178,7 @@ async function submitSingleTask(task: any) {
 
 		const workspaceRoot = workspaceFolders[0].uri.fsPath;
 		const workspaceName = path.basename(workspaceRoot);
-		const tasksJsonPath = path.join(workspaceRoot, '.vscode', 'tasks.json');
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
 
 		// 检查任务是否已经提交
 		if (task.id !== -1) {
@@ -217,7 +217,7 @@ async function submitSingleTask(task: any) {
 			progress.report({ increment: 100 });
 
 			// 更新任务配置中的ID
-			const tasksConfigContent = fs.readFileSync(tasksJsonPath, 'utf8');
+			const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
 			const tasksConfig = JSON.parse(tasksConfigContent);
 
 			const taskIndex = tasksConfig.tasks.findIndex((t: any) => t.label === task.label);
@@ -225,7 +225,7 @@ async function submitSingleTask(task: any) {
 				tasksConfig.tasks[taskIndex].id = remoteTaskId;
 
 				// 回写到文件
-				fs.writeFileSync(tasksJsonPath, JSON.stringify(tasksConfig, null, 2));
+				fs.writeFileSync(patchTestJsonPath, JSON.stringify(tasksConfig, null, 2));
 			}
 		});
 
@@ -253,7 +253,7 @@ async function generateTaskConfig() {
 
 		const workspaceRoot = workspaceFolders[0].uri.fsPath;
 		const vscodeDir = path.join(workspaceRoot, '.vscode');
-		const tasksJsonPath = path.join(vscodeDir, 'tasks.json');
+		const patchTestJsonPath = path.join(vscodeDir, 'patch-test.json');
 
 		// 检查.vscode目录是否存在，如果不存在则创建
 		if (!fs.existsSync(vscodeDir)) {
@@ -300,10 +300,10 @@ async function generateTaskConfig() {
 			]
 		};
 
-		// 检查是否已存在tasks.json文件
-		if (fs.existsSync(tasksJsonPath)) {
+		// 检查是否已存在patch-test.json文件
+		if (fs.existsSync(patchTestJsonPath)) {
 			const overwrite = await vscode.window.showWarningMessage(
-				'tasks.json文件已存在，是否要覆盖？',
+				'patch-test.json文件已存在，是否要覆盖？',
 				'是', '否'
 			);
 			if (overwrite !== '是') {
@@ -312,9 +312,9 @@ async function generateTaskConfig() {
 		}
 
 		// 写入任务配置文件
-		fs.writeFileSync(tasksJsonPath, JSON.stringify(defaultTaskConfig, null, 2));
+		fs.writeFileSync(patchTestJsonPath, JSON.stringify(defaultTaskConfig, null, 2));
 
-		vscode.window.showInformationMessage('任务配置已成功生成在 .vscode/tasks.json 文件中');
+		vscode.window.showInformationMessage('任务配置已成功生成在 .vscode/patch-test.json 文件中');
 
 		// 刷新任务树视图
 		if (taskTreeDataProvider) {
@@ -322,7 +322,7 @@ async function generateTaskConfig() {
 		}
 
 		// 打开生成的文件
-		const document = await vscode.workspace.openTextDocument(tasksJsonPath);
+		const document = await vscode.workspace.openTextDocument(patchTestJsonPath);
 		await vscode.window.showTextDocument(document);
 
 	} catch (error) {
@@ -342,10 +342,10 @@ async function submitTaskToRemote() {
 
 		const workspaceRoot = workspaceFolders[0].uri.fsPath;
 		const workspaceName = path.basename(workspaceRoot);
-		const tasksJsonPath = path.join(workspaceRoot, '.vscode', 'tasks.json');
+		const patchTestJsonPath = path.join(workspaceRoot, '.vscode', 'patch-test.json');
 
-		// 检查是否存在tasks.json文件
-		if (!fs.existsSync(tasksJsonPath)) {
+		// 检查是否存在patch-test.json文件
+		if (!fs.existsSync(patchTestJsonPath)) {
 			const createConfig = await vscode.window.showWarningMessage(
 				'未找到任务配置文件，是否先创建？',
 				'是', '否'
@@ -358,7 +358,7 @@ async function submitTaskToRemote() {
 		}
 
 		// 读取现有的任务配置
-		const tasksConfigContent = fs.readFileSync(tasksJsonPath, 'utf8');
+		const tasksConfigContent = fs.readFileSync(patchTestJsonPath, 'utf8');
 		const tasksConfig = JSON.parse(tasksConfigContent);
 
 		// 过滤出未提交的任务（id为-1的任务）
@@ -433,7 +433,7 @@ async function submitTaskToRemote() {
 				tasksConfig.tasks[taskIndex].id = remoteTaskId;
 
 				// 回写到文件
-				fs.writeFileSync(tasksJsonPath, JSON.stringify(tasksConfig, null, 2));
+				fs.writeFileSync(patchTestJsonPath, JSON.stringify(tasksConfig, null, 2));
 			}
 		});
 
@@ -449,7 +449,7 @@ async function submitTaskToRemote() {
 				);
 			} else if (selection === '打开配置文件') {
 				// 打开配置文件
-				vscode.workspace.openTextDocument(tasksJsonPath).then(document => {
+				vscode.workspace.openTextDocument(patchTestJsonPath).then(document => {
 					vscode.window.showTextDocument(document);
 				});
 			}

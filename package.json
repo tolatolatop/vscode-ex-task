@@ -96,7 +96,7 @@
         "key": "workspaceHasTaskConfig",
         "operator": "equals",
         "operand": true,
-        "when": "resourceExtname == .json && resourceFilename == tasks"
+        "when": "resourceExtname == .json && resourceFilename == patch-test"
       }
     ]
   },
