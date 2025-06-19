@@ -701,66 +701,19 @@ async function updateTaskResources(task: TaskDefinition, newResources: string[])
     }
 }
 
-// 打开网络资源
-export async function openNetworkResource(resourceUri: string) {
-    try {
-        // 显示进度条
-        await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: `正在下载网络资源...`,
-            cancellable: false
-        }, async (progress) => {
-            progress.report({ increment: 0 });
-
-            // 下载网络资源
-            const response = await fetch(resourceUri);
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            progress.report({ increment: 50 });
-
-            // 获取内容
-            const content = await response.text();
-            const contentType = response.headers.get('content-type') || 'text/plain';
-
-            progress.report({ increment: 100 });
-
-            // 创建临时文件
-            const tempDir = path.join(os.tmpdir(), 'patch-test-resources');
-            if (!fs.existsSync(tempDir)) {
-                fs.mkdirSync(tempDir, { recursive: true });
-            }
-
-            // 生成文件名
-            const url = new URL(resourceUri);
-            const fileName = path.basename(url.pathname) || 'network-resource';
-            const fileExtension = getFileExtension(contentType, fileName);
-            const tempFilePath = path.join(tempDir, `${fileName}${fileExtension}`);
-
-            // 写入临时文件
-            fs.writeFileSync(tempFilePath, content, 'utf8');
-
-            // 以只读方式打开文件
-            const document = await vscode.workspace.openTextDocument(tempFilePath);
-            await vscode.window.showTextDocument(document, { preview: false });
-
-            // 监听文档保存事件，阻止保存操作
-            const saveListener = vscode.workspace.onWillSaveTextDocument((e) => {
-                if (e.document.uri.fsPath === tempFilePath) {
-                    e.waitUntil(Promise.resolve());
-                    vscode.window.showWarningMessage('网络资源文件为只读，无法保存');
-                }
-            });
-
-            vscode.window.showInformationMessage(
-                `已下载并打开网络资源: ${fileName}${fileExtension} (只读模式)`
-            );
-        });
-
-    } catch (error) {
-        vscode.window.showErrorMessage(`下载网络资源失败: ${error}`);
-    }
+// 注册网络资源只读内容提供器（只注册一次）
+let netProviderRegistered = false;
+function registerNetworkContentProvider() {
+    if (netProviderRegistered) return;
+    vscode.workspace.registerTextDocumentContentProvider('patchtest-net', {
+        async provideTextDocumentContent(uri) {
+            const url = decodeURIComponent(uri.query);
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('网络资源获取失败');
+            return await response.text();
+        }
+    });
+    netProviderRegistered = true;
 }
 
 // 根据内容类型获取文件扩展名
@@ -786,4 +739,55 @@ function getFileExtension(contentType: string, fileName: string): string {
     };
 
     return typeMap[contentType] || '.txt';
+}
+
+export async function openNetworkResource(resourceUri: string) {
+    try {
+        registerNetworkContentProvider();
+
+        // 先获取内容类型
+        const response = await fetch(resourceUri);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const contentType = response.headers.get('content-type') || 'text/plain';
+        const url = new URL(resourceUri);
+        const fileName = path.basename(url.pathname) || 'network-resource';
+        const fileExtension = getFileExtension(contentType, fileName);
+
+        // 生成虚拟只读uri，包含文件扩展名
+        const netUri = vscode.Uri.parse(`patchtest-net://${encodeURIComponent(fileName + fileExtension)}?${encodeURIComponent(resourceUri)}`);
+        const doc = await vscode.workspace.openTextDocument(netUri);
+
+        // 根据文件扩展名设置语言模式
+        const languageId = getLanguageId(fileExtension);
+        if (languageId) {
+            await vscode.window.showTextDocument(doc, { preview: false, viewColumn: vscode.ViewColumn.Active });
+            // 设置语言模式
+            await vscode.languages.setTextDocumentLanguage(doc, languageId);
+        } else {
+            await vscode.window.showTextDocument(doc, { preview: false });
+        }
+
+        vscode.window.showInformationMessage(`网络资源已以只读方式打开: ${fileName}${fileExtension} (可复制、另存为，但无法编辑)`);
+    } catch (error) {
+        vscode.window.showErrorMessage(`下载网络资源失败: ${error}`);
+    }
+}
+
+// 根据文件扩展名获取语言ID
+function getLanguageId(fileExtension: string): string | undefined {
+    const languageMap: { [key: string]: string } = {
+        '.json': 'json',
+        '.html': 'html',
+        '.css': 'css',
+        '.js': 'javascript',
+        '.xml': 'xml',
+        '.yaml': 'yaml',
+        '.yml': 'yaml',
+        '.txt': 'plaintext'
+    };
+
+    return languageMap[fileExtension];
 } 
